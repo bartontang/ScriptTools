@@ -1,12 +1,14 @@
 #!/usr/bin/python
 # encoding=utf-8
-import sys, os
+import sys, os, shutil, json
 import xlrd
 
 reload(sys)
 sys.setdefaultencoding('utf-8')
 # l 存储当前生成的lua文件名字
 l = []
+# 存放mutable的表
+dic = {}
 
 def main(seachPath):
     InputPath = seachPath
@@ -14,8 +16,17 @@ def main(seachPath):
 
 
 def readPath(path):
+    readJsonKeys(path)
+
+    # for key in dic:
+    #     print "key = %s" % key
+    #     array = dic[key]
+    #     for i in xrange(0, len(array)):
+    #         print array[i]
+
+	#
     filelist = os.listdir(path)
-    # 遍历文件夹下的所有文件
+	# 遍历文件夹下的所有文件
     for n in range(len(filelist)):
         file = filelist[n]
         if ".xls" in file:
@@ -31,7 +42,7 @@ def open_excel(file):
     except Exception,e:
         print str(e)
 
-# 生成所有的db表集合文件DBName.lua
+# 生成所有的db表集合
 def createDBFile(l, path):
     targetFileName = path + "DBName.lua"
     f = open(targetFileName, "w")
@@ -43,6 +54,35 @@ def createDBFile(l, path):
         print(lua_file_name)
         f.write("\n")
     f.close()
+
+# 是否为服务器字段
+def isServerField(field):
+    if "server" in field:
+        return True
+    return False
+
+# 是否为MutableTable(不打入表的第一个字段)
+def isMutableTable(file, dirPath):
+    # fp = open(dirPath + '/mutable_client.json', 'r') 
+    # jsonobj = json.load(fp)
+    # obj = jsonobj['mutable']
+
+    # if file in obj:
+    #     return True
+    return False
+
+# 读取mutable_client_keys json文件，保存需要多个key支持的excel文件名
+def readJsonKeys(dirPath):
+    allpath = dirPath + os.sep + 'mutable_client_keys.json'
+    if os.path.exists(allpath) == False:
+        return
+    fp = open(allpath, 'r') 
+    jsonobj = json.load(fp)
+    for key in jsonobj:
+        keys_array = jsonobj[key]
+        dic[key] = keys_array
+    fp.close()
+
 
 def readExcel(fileWithPathAndExt, dirPath):
     # 打开工作表
@@ -57,7 +97,13 @@ def readExcel(fileWithPathAndExt, dirPath):
     # for sheet in excel.sheets():
     #     print sheet.name 
 
+    # print(tableName)
     
+    is_MutableTable = False
+
+    # if isMutableTable(tableName, dirPath):
+    #     is_MutableTable = True
+
     # # 行数
     nrows = sheet.nrows
     outputPath = dirPath + "/" + "out/"
@@ -89,21 +135,32 @@ def readExcel(fileWithPathAndExt, dirPath):
     for rownum in range(dbBeginRow+1,nrows):
         row = sheet.row_values(rownum)
         file.write("[")
-        # 顺序下标访问
-        # file.write(str(rownum-9))
-        # excel第一个字段做下标,要判断下类型
-        if typeNameList[0] == "string":
+        # 如果在多个key支持的表里
+        if dic.has_key(tableName):
             file.write("\"")
-            tmp = str(row[0])
-            file.write(tmp)
+            keys_array = dic[tableName]
+            for index in xrange(0,len(keys_array)):
+                row_index = int(keys_array[index])
+                value = row[row_index]
+                file.write(str(value))
+                if index < len(keys_array)-1:
+                    file.write(", ")    
             file.write("\"")
         else:
-            tmp = str(row[0])
-            file.write(tmp)
+            if typeNameList[0] == "string":
+                file.write("\"")
+                tmp = str(row[0])
+                file.write(tmp)
+                file.write("\"")
+            else:
+                tmp = str(row[0])
+                file.write(tmp)
         file.write("] = ")
         
         file.write("{");
         for i in range(totalColNum):
+            if isServerField(colnames[i]):
+                continue
             file.write(colnames[i])
             # 字段的类型值
             typeValue = typeNameList[i]
@@ -123,8 +180,5 @@ def readExcel(fileWithPathAndExt, dirPath):
     file.write("}")
     file.close()
         
-
-
 if __name__=="__main__":
-    #main()
     main(sys.argv[1])
